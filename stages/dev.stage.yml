@@ -1,0 +1,4 @@
+region: us-east-1
+COGNITO_USER_POOL: us-east-1_EZpI3o3bz
+COGNITO_CLIENT_ID: 729d7lmmum2ts2kvcsqfrfmpa1
+COGNITO_USER_POOL_ARN: arn:aws:cognito-idp:us-east-1:101715662936:userpool/us-east-1_EZpI3o3bz

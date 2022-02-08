@@ -1,0 +1,141 @@
+service: gsl-backend
+
+package:
+  exclude:
+    - ./**
+    - '!node_modules/**'
+  include:
+    - '!node_modules/aws-sdk/**'
+    - '!node_modules/**/aws-sdk/**'
+    - build/src/**
+    - package.json
+    - package-lock.json
+  excludeDevDependencies: true
+
+provider:
+  name: aws
+  runtime: nodejs14.x
+  stage: ${opt:stage, 'dev'}
+
+  iamRoleStatements:
+    - Effect: 'Allow'
+      Action:
+          - 'lambda:InvokeFunction'
+      Resource:
+      - Fn::Join:
+          - ':'
+          - - arn:aws:lambda
+            - Ref: AWS::Region
+            - Ref: AWS::AccountId
+            - function:${self:service}-${opt:stage, self:provider.stage}-*
+    - Effect: 'Allow'
+      Action:
+        - 'cognito-idp:AdminInitiateAuth'
+        - 'cognito-idp:AdminCreateUser'
+        - 'cognito-idp:ConfirmSignUp'
+        - 'cognito-idp:SignUp'
+        - 'cognito-idp:AdminGetUser'
+        - 'cognito-idp:GetUser'
+      Resource:
+        - ${self:custom.config.COGNITO_USER_POOL_ARN}
+  
+  region: ${self:custom.config.region}
+
+  environment:
+    REGION: ${self:custom.region}
+    STAGE: ${self:custom.stage}
+    COGNITO_CLIENT_ID: ${self:custom.config.COGNITO_CLIENT_ID}
+    COGNITO_USER_POOL: ${self:custom.config.COGNITO_USER_POOL}
+    DB_TABLE_ALLOWED_POLICIES: ${self:custom.database.allowedPolicies}
+
+plugins:
+  - serverless-offline
+
+functions:
+  login:
+    handler: build/src/adapter/auth/signin.signin
+    timeout: 30
+    events:
+      - http:
+          path: signin
+          method: post
+          cors: true
+
+  authorizer:
+    handler: build/src/adapter/auth/authorizer.authorizer
+    timeout: 30
+    events:
+      - http:
+          path: authorizer
+          method: post
+          cors: true
+
+  deliveries:
+    handler: build/src/adapter/delivery.listAll
+    timeout: 30
+    events:
+      - http:
+          path: delivery/list
+          method: get
+          cors: true
+          authorizer:
+            name: authorizer
+
+custom:
+  config: ${file(stages.yml):${opt:stage, self:provider.stage}}
+  stage: ${self:provider.stage}
+  region: ${opt:region, self:provider.region}
+  corsMethods: 'GET,OPTIONS,POST'
+  corsHeaders: 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'
+  corsOrigins: '*'
+  serverless-offline:
+    httpPort: 5052
+    lambdaPort: 5053
+    host: 0.0.0.0
+  database:
+    allowedPolicies: ${self:service}-${self:custom.stage}-allowed-policies
+
+resources:
+  Resources:
+      AllowesPoliciesTable:
+        Type: AWS::DynamoDB::Table
+        Properties:
+            TableName: ${self:custom.database.allowedPolicies}
+            ProvisionedThroughput:
+              ReadCapacityUnits: 5
+              WriteCapacityUnits: 5
+            AttributeDefinitions:
+                - AttributeName: id
+                  AttributeType: S
+            KeySchema:
+                - AttributeName: id
+                  KeyType: HASH
+
+      AllowesPoliciesTableReadWritePolicy:
+        Type: AWS::IAM::ManagedPolicy
+        DependsOn:
+            - AllowesPoliciesTable
+        Properties:
+            ManagedPolicyName: ${self:service}-${self:custom.stage}-allowed-policies-db-readwrite
+            Description: "Policy for allowed-policies-db-readwrite"
+            Path: /            
+            PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    - Effect: Allow
+                      Action:
+                          - dynamodb:DescribeTable
+                          - dynamodb:GetItem
+                          - dynamodb:PutItem
+                          - dynamodb:BatchWriteItem
+                          - dynamodb:UpdateItem
+                          - dynamodb:DeleteItem
+                          - dynamodb:Scan
+                          - dynamodb:Query
+                          - dynamodb:ListStreams
+                          - dynamodb:DescribeStream
+                      Resource:
+                          - arn:aws:dynamodb:*:*:table/${self:custom.database.allowedPolicies}
+                          - arn:aws:dynamodb:*:*:table/${self:custom.database.allowedPolicies}/index/*
+            Roles:
+                - Ref: IamRoleLambdaExecution
