@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  StageName:
+    Description: Stage
+    Default: dev
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9\-]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "gsl-user-pool-${StageName}"
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AutoVerifiedAttributes:
+        - email
+      EmailVerificationSubject: 'GSL - Seu Codigo de verificacao'
+      EmailVerificationMessage: 'Seu codigo de verificacao: {####}.'
+      MfaConfiguration: 'OFF'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: 7
+      Schema:
+        - Name: 'scope'
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MaxLength: '256'
+            MinLength: '1'
+      UsernameAttributes:
+        - email
+      UsernameConfiguration:
+        CaseSensitive: false
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: gsl-client
+      UserPoolId: !Ref UserPool
+      AccessTokenValidity: 60
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+        - aws.cognito.signin.user.admin
+      CallbackURLs:
+        - https://gsl-123.cloudfront.net/auth/external
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AU
+        - ALLOW_CUSTOM_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+      LogoutURLs:
+        - https://gsl-123.cloudfront.net/auth/logout
+      IdTokenValidity: 60
+      SupportedIdentityProviders:
+        - COGNITO
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      PreventUserExistenceErrors: ENABLED
+  UserPoolDomainAWS:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "${StageName}-gsl"
+      UserPoolId: !Ref UserPool
+  userPoolIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join
+        - '/'
+        - - ''
+          - !Ref StageName
+          - 'auth'
+          - 'cognito'
+          - 'userPool'
+          - 'id'
+      Type: String
+      Value: !Ref UserPool
+      Tags:
+        "gsl:app": "GSL"
+        "gsl:stage-name": !Ref StageName
+  userPoolArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join
+        - '/'
+        - - ''
+          - !Ref StageName
+          - 'auth'
+          - 'cognito'
+          - 'userPool'
+          - 'arn'
+      Type: String
+      Value: !GetAtt "UserPool.Arn"
+      Tags:
+        "gsl:app": "GSL"
+        "gsl:stage-name": !Ref StageName
+  ClientParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join
+        - '/'
+        - - ''
+          - !Ref StageName
+          - 'auth'
+          - 'cognito'
+          - 'client'
+          - 'id'
+      Type: String
+      Value: !Ref UserPoolClient
+      Tags:
+        "gsl:app": "GSL"
+        "gsl:stage-name": !Ref StageName
+Outputs:
+  CognitoUserPoolID:
+    Value: !Ref UserPool
+    Description: The UserPool ID
+  CognitoUserPoolArn:
+    Value: !GetAtt "UserPool.Arn"
+    Description: ARN of UserPool ID
+  CognitoAppWebClientID:
+    Value: !Ref UserPoolClient
+    Description: The app client id
